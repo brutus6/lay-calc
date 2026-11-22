@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matched Betting Toolkit</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1b1f24;--muted:#5d6670;--line:#dde1e6;--accent:#0f7b5f;--accent-ink:#fff;--bad:#b3261e;--good:#0f7b5f;--chip:#eef1f4}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111418;--card:#1a1e23;--ink:#e7eaee;--muted:#9aa4ae;--line:#2c323a;--accent:#3fbf95;--accent-ink:#06130e;--bad:#ff8a80;--good:#5fd3a9;--chip:#232930}}
+:root[data-theme="dark"]{--bg:#111418;--card:#1a1e23;--ink:#e7eaee;--muted:#9aa4ae;--line:#2c323a;--accent:#3fbf95;--accent-ink:#06130e;--bad:#ff8a80;--good:#5fd3a9;--chip:#232930}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}
+h1{font-size:1.35rem;margin:4px 0 2px}
+.sub{color:var(--muted);margin:0 0 14px;font-size:.9rem}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 14px;border-radius:999px;cursor:pointer;font:inherit}
+nav button[aria-selected="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+label{display:flex;flex-direction:column;gap:4px;font-size:.82rem;color:var(--muted)}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%}
+textarea{min-height:60px}
+.seg{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px}
+.seg button{border:1px solid var(--line);background:var(--chip);color:var(--ink);padding:6px 12px;border-radius:8px;cursor:pointer;font:inherit;font-size:.88rem}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.out{margin-top:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{background:var(--chip);border-radius:10px;padding:10px 12px}
+.stat b{display:block;font-size:1.25rem;font-variant-numeric:tabular-nums}
+.stat span{font-size:.78rem;color:var(--muted)}
+.neg{color:var(--bad)}.pos{color:var(--good)}
+.btn{background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:wait}
+.note{font-size:.82rem;color:var(--muted)}
+.err{color:var(--bad);font-size:.88rem}
+.tablewrap{overflow-x:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:.85rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600;cursor:pointer}
+td.r,th.r{text-align:right}
+.hidden{display:none}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.check{flex-direction:row;align-items:center;gap:6px;color:var(--ink);font-size:.88rem}
+.check input{width:auto}
+</style>
+</head>
+<body>
+<main>
+<h1>Matched Betting Toolkit</h1>
+<p class="sub">Lay calculator, 2UP trade-out and odds matcher. Runs in your browser; your API key never leaves this device except to call The Odds API.</p>
+
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="calc">Lay calculator</button>
+  <button role="tab" aria-selected="false" data-tab="twoup">2UP</button>
+  <button role="tab" aria-selected="false" data-tab="match">Odds matcher</button>
+  <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
+</nav>
+
+<!-- LAY CALCULATOR -->
+<section id="tab-calc" class="card">
+  <div class="seg" id="calcType">
+    <button aria-pressed="true" data-v="q">Qualifying</button>
+    <button aria-pressed="false" data-v="snr">Free bet (SNR)</button>
+    <button aria-pressed="false" data-v="sr">Free bet (SR)</button>
+  </div>
+  <div class="grid">
+    <label>Stake (£)<input id="c_stake" type="number" step="any" inputmode="decimal" value="10"></label>
+    <label>Back odds<input id="c_back" type="number" step="any" inputmode="decimal" value="2.88"></label>
+    <label>Lay odds<input id="c_lay" type="number" step="any" inputmode="decimal" value="3.1"></label>
+    <label>Exchange<select id="c_ex"></select></label>
+    <label>Commission %<input id="c_comm" type="number" step="any" inputmode="decimal"></label>
+  </div>
+  <div class="out" id="calcOut"></div>
+  <p class="note" id="calcNote"></p>
+</section>
+
+<!-- 2UP -->
+<section id="tab-twoup" class="card hidden">
+  <p class="note" style="margin-top:0">Your team has gone 2 goals up and the bookie has paid out. Back the team on the exchange to cancel the open lay and lock in profit, or let it ride.</p>
+  <div class="grid">
+    <label>Bookie stake (£)<input id="t_stake" type="number" step="any" inputmode="decimal" value="25"></label>
+    <label>Bookie back odds<input id="t_back" type="number" step="any" inputmode="decimal" value="2.5"></label>
+    <label>Your lay stake (£)<input id="t_laystake" type="number" step="any" inputmode="decimal" value="24.80"></label>
+    <label>Lay odds<input id="t_lay" type="number" step="any" inputmode="decimal" value="2.52"></label>
+    <label>In-play back odds now<input id="t_inplay" type="number" step="any" inputmode="decimal" value="1.10"></label>
+  </div>
+  <div class="out" id="twoupOut"></div>
+</section>
+
+<!-- ODDS MATCHER -->
+<section id="tab-match" class="card hidden">
+  <div class="seg" id="matchType">
+    <button aria-pressed="true" data-v="q">Qualifying</button>
+    <button aria-pressed="false" data-v="snr">Free bet (SNR)</button>
+    <button aria-pressed="false" data-v="sr">Free bet (SR)</button>
+  </div>
+  <div class="grid">
+    <label>Stake (£)<input id="m_stake" type="number" step="any" value="10"></label>
+    <label>Min odds<input id="m_min" type="number" step="any" value="1.5"></label>
+    <label>Max odds (0 = any)<input id="m_max" type="number" step="any" value="0"></label>
+    <label>Days ahead<input id="m_days" type="number" value="3"></label>
+    <label>Bookies (comma list, blank = all)<input id="m_bookies" placeholder="william, paddy"></label>
+  </div>
+  <div class="row">
+    <button class="btn" id="m_go">Find matches</button>
+    <label class="check"><input type="checkbox" id="m_fresh"> Refresh prices (uses credits)</label>
+    <label class="check"><input type="checkbox" id="m_anyliq"> Include low-liquidity lays</label>
+  </div>
+  <p class="err" id="m_err"></p>
+  <p class="note" id="m_status"></p>
+  <div class="tablewrap"><table id="m_table"></table></div>
+  <p class="note">Always re-check odds on the bookie and exchange before placing. Coverage: match result only.</p>
+</section>
+
+<!-- SETTINGS -->
+<section id="tab-settings" class="card hidden">
+  <div class="grid">
+    <label style="grid-column:1/-1">The Odds API key (free at the-odds-api.com — stored only in this browser)<input id="s_key" type="password" autocomplete="off"></label>
+    <label>Betfair commission %<input id="s_bf" type="number" step="any"></label>
+    <label>Smarkets commission %<input id="s_smk" type="number" step="any"></label>
+    <label>Matchbook commission %<input id="s_mb" type="number" step="any"></label>
+    <label>Min lay liquidity (£)<input id="s_liq" type="number" step="any"></label>
+    <label>Cache minutes<input id="s_cache" type="number"></label>
+    <label style="grid-column:1/-1">Competitions (The Odds API sport keys, one per line — mainstream only)<textarea id="s_sports" rows="6"></textarea></label>
+  </div>
+  <div class="row">
+    <label class="check"><input type="checkbox" id="s_layapi"> Fetch exchange lay prices from The Odds API (h2h_lay, +1 credit per competition)</label>
+    <label class="check"><input type="checkbox" id="s_smkdirect"> Also try live Smarkets prices directly</label>
+  </div>
+  <div class="row"><button class="btn" id="s_save">Save</button><span class="note" id="s_msg"></span></div>
+  <p class="note" id="s_quota"></p>
+</section>
+</main>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- storage (safe)
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("mb_" + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("mb_" + k, JSON.stringify(v)); } catch {} },
+};
+const DEFAULTS = {
+  key: "", comm: { betfair: 5, smarkets: 0, matchbook: 0 }, minLiq: 100, cacheMin: 30, layApi: true, smkDirect: true,
+  sports: ["soccer_epl", "soccer_efl_champ", "soccer_uefa_champs_league", "soccer_uefa_europa_league", "soccer_fa_cup",
+    "soccer_england_efl_cup", "soccer_spain_la_liga", "soccer_italy_serie_a", "soccer_germany_bundesliga",
+    "soccer_france_ligue_one", "soccer_spl"],
+};
+let conf = Object.assign({}, DEFAULTS, store.get("conf", {}));
+conf.comm = Object.assign({}, DEFAULTS.comm, conf.comm || {});
+
+// ---------------------------------------------------------------- maths (same as mb.py)
+function layCalc(kind, stake, back, lay, commPct) {
+  const c = commPct / 100;
+  if (!(lay > c + 1)) throw new Error("Lay odds too low");
+  let L, backWins, layWins;
+  if (kind === "q") { L = stake * back / (lay - c); backWins = stake * (back - 1) - L * (lay - 1); layWins = L * (1 - c) - stake; }
+  else if (kind === "snr") { L = stake * (back - 1) / (lay - c); backWins = stake * (back - 1) - L * (lay - 1); layWins = L * (1 - c); }
+  else { L = stake * back / (lay - c); backWins = stake * back - L * (lay - 1); layWins = L * (1 - c); }
+  const out = { layStake: L, liability: L * (lay - 1), backWins, layWins, profit: Math.min(backWins, layWins) };
+  if (kind !== "q") out.retention = 100 * out.profit / stake;
+  return out;
+}
+function twoUp(stake, back, layStake, lay, inplay) {
+  const x = layStake * lay / inplay, bookie = stake * (back - 1);
+  return { backStake: x, win: bookie - layStake * (lay - 1) + x * (inplay - 1), lose: bookie + layStake - x,
+    rideWin: bookie - layStake * (lay - 1), rideLose: bookie + layStake };
+}
+const money = x => (x < 0 ? "-£" : "£") + Math.abs(x).toFixed(2);
+const cls = x => x < -0.005 ? "neg" : x > 0.005 ? "pos" : "";
+const stat = (label, val, colour) => `<div class="stat"><b class="${colour ? cls(val) : ""}">${money(val)}</b><span>${label}</span></div>`;
+const num = id => parseFloat(document.getElementById(id).value);
+const $ = id => document.getElementById(id);
+
+// ---------------------------------------------------------------- tabs / segmented buttons
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.setAttribute("aria-selected", x === b));
+  document.querySelectorAll("main > section").forEach(s => s.classList.toggle("hidden", s.id !== "tab-" + b.dataset.tab));
+  store.set("tab", b.dataset.tab);
+});
+function seg(id, onChange) {
+  const el = $(id);
+  el.querySelectorAll("button").forEach(b => b.onclick = () => {
+    el.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); onChange && onChange();
+  });
+  return () => el.querySelector('[aria-pressed="true"]').dataset.v;
+}
+
+// ---------------------------------------------------------------- lay calculator
+const calcType = seg("calcType", renderCalc);
+const EXES = ["betfair", "smarkets", "matchbook"];
+$("c_ex").innerHTML = EXES.map(e => `<option value="${e}">${e[0].toUpperCase() + e.slice(1)}</option>`).join("");
+$("c_ex").value = store.get("calcEx", "smarkets");
+$("c_comm").value = conf.comm[$("c_ex").value];
+$("c_ex").onchange = () => { $("c_comm").value = conf.comm[$("c_ex").value]; store.set("calcEx", $("c_ex").value); renderCalc(); };
+["c_stake", "c_back", "c_lay", "c_comm"].forEach(id => $(id).oninput = renderCalc);
+function renderCalc() {
+  const k = calcType(), s = num("c_stake"), b = num("c_back"), l = num("c_lay"), c = num("c_comm") || 0;
+  if (!(s > 0 && b > 1 && l > 1)) { $("calcOut").innerHTML = ""; $("calcNote").textContent = "Enter stake and odds."; return; }
+  try {
+    const r = layCalc(k, s, b, l, c);
+    $("calcOut").innerHTML = `<div class="stat"><b>${money(r.layStake)}</b><span>Lay stake</span></div>`
+      + `<div class="stat"><b>${money(r.liability)}</b><span>Liability (needed in exchange)</span></div>`
+      + stat("If bookie bet wins", r.backWins, true) + stat("If exchange lay wins", r.layWins, true)
+      + (k === "q" ? stat("Qualifying loss / profit", r.profit, true)
+                   : `<div class="stat"><b class="${cls(r.profit)}">${money(r.profit)}</b><span>Locked-in profit · ${r.retention.toFixed(1)}% retention</span></div>`);
+    $("calcNote").textContent = `Rating ${(100 * b / l).toFixed(1)}% (back ÷ lay). Use round-number bookie stakes.`;
+  } catch (e) { $("calcOut").innerHTML = ""; $("calcNote").textContent = e.message; }
+}
+
+// ---------------------------------------------------------------- 2UP
+["t_stake", "t_back", "t_laystake", "t_lay", "t_inplay"].forEach(id => $(id).oninput = renderTwoUp);
+function renderTwoUp() {
+  const v = ["t_stake", "t_back", "t_laystake", "t_lay", "t_inplay"].map(num);
+  if (!(v[0] > 0 && v[1] > 1 && v[2] > 0 && v[3] > 1 && v[4] > 1)) { $("twoupOut").innerHTML = ""; return; }
+  const r = twoUp(...v);
+  $("twoupOut").innerHTML = `<div class="stat"><b>${money(r.backStake)}</b><span>BACK the team on the exchange @ ${v[4]}</span></div>`
+    + stat("Locked in: team wins", r.win, true) + stat("Locked in: draw / loses", r.lose, true)
+    + stat("Let it ride: team wins", r.rideWin, true) + stat("Let it ride: draw / loses", r.rideLose, true);
+}
+
+// ---------------------------------------------------------------- name matching (same as mb.py)
+const ALIASES = { utd: "united", man: "manchester", spurs: "tottenham", nottm: "nottingham", wolves: "wolverhampton", st: "saint", psg: "paris saint germain" };
+const DROP = new Set(["fc", "afc", "cf", "sc", "ac", "the", "de", "club", "calcio", "hotspur", "and", "fk", "sk", "bk"]);
+function norm(n) {
+  let s = n.normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9 ]/g, " ");
+  return s.split(/\s+/).filter(Boolean).map(w => ALIASES[w] || w).join(" ").split(" ").filter(w => w && !DROP.has(w)).join(" ");
+}
+function ratio(a, b) { // Dice coefficient on bigrams, close enough to difflib for team names
+  const bg = s => { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) || 0) + 1); } return m; };
+  const A = bg(a), B = bg(b); let inter = 0; for (const [g, c] of A) inter += Math.min(c, B.get(g) || 0);
+  const tot = Math.max(a.length - 1, 0) + Math.max(b.length - 1, 0); return tot ? 2 * inter / tot : 0;
+}
+function sim(a, b) { a = norm(a); b = norm(b); if (!a || !b) return 0; if (a === b || a.includes(b) || b.includes(a)) return 1; return ratio(a, b); }
+
+// ---------------------------------------------------------------- data sources
+const ODDS = "https://api.the-odds-api.com/v4", SMK = "https://api.smarkets.com/v3";
+function cacheGet(k, mins) { const c = store.get("cache_" + k); return c && mins && Date.now() - c.t < mins * 60000 ? c.d : null; }
+function cachePut(k, d) { store.set("cache_" + k, { t: Date.now(), d }); }
+async function oddsApi(sport, fresh) {
+  const markets = conf.layApi ? "h2h,h2h_lay" : "h2h", ck = `odds_${sport}_${markets}`;
+  const c = fresh ? null : cacheGet(ck, conf.cacheMin); if (c) return c;
+  const u = `${ODDS}/sports/${sport}/odds?` + new URLSearchParams({ apiKey: conf.key, regions: "uk", markets, oddsFormat: "decimal", dateFormat: "iso" });
+  const r = await fetch(u);
+  const rem = r.headers.get("x-requests-remaining"); if (rem != null) store.set("quota", { remaining: rem, used: r.headers.get("x-requests-used"), at: new Date().toLocaleString() });
+  if (r.status === 404 || r.status === 422) { cachePut(ck, []); return []; }
+  if (r.status === 401) throw new Error("The Odds API rejected the key (401). Check it in Settings.");
+  if (!r.ok) throw new Error(`The Odds API error ${r.status}`);
+  const d = await r.json(); cachePut(ck, d); return d;
+}
+async function smkGet(path, params) { const r = await fetch(SMK + path + (params ? "?" + new URLSearchParams(params) : "")); if (!r.ok) throw new Error("Smarkets " + r.status); return r.json(); }
+async function smkEvents(days, fresh) {
+  const ck = "smk_events_" + days, c = fresh ? null : cacheGet(ck, 15); if (c) return c;
+  const now = new Date(), iso = d => d.toISOString().slice(0, 19) + "Z";
+  let params = { state: "upcoming", type: "football_match", limit: 300, sort: "start_datetime,id", start_datetime_min: iso(now), start_datetime_max: iso(new Date(+now + days * 864e5)) };
+  const ev = [];
+  for (let i = 0; i < 40; i++) {
+    const d = await smkGet("/events/", params);
+    d.events.forEach(e => ev.push({ id: e.id, name: e.name, start: e.start_datetime }));
+    const nxt = (d.pagination || {}).next_page; if (!nxt) break;
+    params = Object.fromEntries(new URLSearchParams(nxt.replace(/^\?/, "")));
+  }
+  cachePut(ck, ev); return ev;
+}
+const chunks = (xs, n) => Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n));
+async function smkPrices(ids) {
+  const out = {}; if (!ids.length) return out;
+  let markets = [];
+  for (const ch of chunks(ids, 20)) markets = markets.concat((await smkGet(`/events/${ch.join(",")}/markets/`)).markets);
+  markets = markets.filter(m => (m.market_type || {}).name === "WINNER_3_WAY");
+  for (const ch of chunks(markets, 20)) {
+    const ids2 = ch.map(m => m.id).join(",");
+    const contracts = (await smkGet(`/markets/${ids2}/contracts/`)).contracts, quotes = await smkGet(`/markets/${ids2}/quotes/`);
+    const mev = Object.fromEntries(ch.map(m => [m.id, m.event_id]));
+    for (const c of contracts) {
+      const q = quotes[c.id] || {}, bids = (q.bids || []).slice().sort((a, b) => b.price - a.price);
+      const type = (c.contract_type || {}).name || c.name;
+      if (bids.length) (out[mev[c.market_id]] ||= {})[type] = { lay: Math.round(1e6 / bids[0].price) / 100, liq: Math.round(bids[0].quantity * bids[0].price / 1e6) / 100 };
+    }
+  }
+  return out;
+}
+function findSmk(events, home, away, start) {
+  const t = Date.parse(start); let best = null, score = 0;
+  for (const e of events) {
+    if (Math.abs(Date.parse(e.start) - t) > 3 * 3600e3) continue;
+    const p = e.name.split(/\s+vs?\.?\s+/); if (p.length !== 2) continue;
+    const s = (sim(home, p[0]) + sim(away, p[1])) / 2; if (s > score) { best = e; score = s; }
+  }
+  return score >= 0.72 ? best : null;
+}
+
+// ---------------------------------------------------------------- odds matcher
+const matchType = seg("matchType");
+const EX_KEYS = { betfair_ex_uk: "betfair", smarkets: "smarkets", matchbook: "matchbook" };
+let rows = [], sortKey = "profit", sortDir = -1;
+$("m_go").onclick = async () => {
+  $("m_err").textContent = ""; $("m_status").textContent = ""; $("m_table").innerHTML = "";
+  if (!conf.key) { $("m_err").textContent = "Add your free The Odds API key in Settings first."; return; }
+  const type = matchType(), stake = num("m_stake"), mn = num("m_min") || 1, mx = num("m_max") || 0, days = num("m_days") || 3;
+  const fresh = $("m_fresh").checked, anyLiq = $("m_anyliq").checked;
+  const bookies = $("m_bookies").value.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  $("m_go").disabled = true; $("m_status").textContent = "Fetching bookie odds…";
+  try {
+    const now = Date.now(), horizon = now + days * 864e5; let games = [];
+    for (const sp of conf.sports) (await oddsApi(sp, fresh)).forEach(g => { const t = Date.parse(g.commence_time); if (t > now && t < horizon) games.push(g); });
+    if (!games.length) throw new Error("No games found in that window (check the competitions list in Settings).");
+    let smk = {}, link = {}, smkNote = "";
+    if (conf.smkDirect) {
+      $("m_status").textContent = "Fetching Smarkets lay prices…";
+      try {
+        const ev = await smkEvents(days, fresh);
+        games.forEach(g => { const e = findSmk(ev, g.home_team, g.away_team, g.commence_time); if (e) link[g.id] = e.id; });
+        smk = await smkPrices([...new Set(Object.values(link))]);
+      } catch (e) { smkNote = " Live Smarkets prices couldn't be loaded from the browser, so exchange prices come from The Odds API only (no liquidity shown)."; }
+    }
+    rows = [];
+    for (const g of games) {
+      const lays = {}; // outcome name -> [{ex, lay, liq}]
+      for (const bm of g.bookmakers || []) {
+        const ex = EX_KEYS[bm.key]; if (!ex) continue;
+        for (const m of bm.markets) if (m.key === "h2h_lay") m.outcomes.forEach(o => (lays[o.name] ||= []).push({ ex, lay: o.price, liq: null }));
+      }
+      const sm = smk[link[g.id]] || {};
+      for (const [ct, c] of Object.entries(sm)) {
+        const name = { HOME: g.home_team, AWAY: g.away_team, DRAW: "Draw" }[ct];
+        if (name && c.lay) { lays[name] = (lays[name] || []).filter(x => x.ex !== "smarkets"); lays[name].push({ ex: "smarkets", lay: c.lay, liq: c.liq }); }
+      }
+      if (!Object.keys(lays).length) continue;
+      for (const bm of g.bookmakers || []) {
+        if (EX_KEYS[bm.key] || bm.key.startsWith("betfair_ex")) continue;
+        if (bookies.length && !bookies.some(b => bm.key.includes(b) || bm.title.toLowerCase().includes(b))) continue;
+        for (const m of bm.markets) {
+          if (m.key !== "h2h") continue;
+          for (const o of m.outcomes) {
+            const back = o.price; if (back < mn || (mx && back > mx)) continue;
+            let best = null;
+            for (const l of lays[o.name] || []) {
+              let r; try { r = layCalc(type, stake, back, l.lay, conf.comm[l.ex] ?? 5); } catch { continue; }
+              if (l.liq != null && l.liq < Math.max(r.layStake, conf.minLiq) && !anyLiq) continue;
+              if (!best || r.profit > best.r.profit) best = { ...l, r };
+            }
+            if (!best) continue;
+            rows.push({ when: g.commence_time, game: `${g.home_team} v ${g.away_team}`, sel: o.name, bookie: bm.title, back,
+              ex: best.ex, lay: best.lay, liq: best.liq, rating: 100 * back / best.lay, layStake: best.r.layStake,
+              liability: best.r.liability, profit: best.r.profit, retention: best.r.retention });
+          }
+        }
+      }
+    }
+    const q = store.get("quota");
+    $("m_status").textContent = `${rows.length} options from ${games.length} games.` + (q ? ` Odds API credits left: ${q.remaining}.` : "") + smkNote;
+    sortKey = "profit"; sortDir = -1; renderTable();
+  } catch (e) { $("m_err").textContent = e.message || String(e); $("m_status").textContent = ""; }
+  finally { $("m_go").disabled = false; }
+};
+function renderTable() {
+  const isQ = matchType() === "q";
+  const cols = [["when", "Kick-off"], ["game", "Match"], ["sel", "Back"], ["bookie", "Bookie"], ["back", "Odds", 1], ["lay", "Lay", 1], ["ex", "Exch"],
+    ["liq", "Liq", 1], ["rating", "Rating", 1], ["layStake", "Lay stake", 1], ["liability", "Liability", 1], ["profit", isQ ? "Qual. loss" : "Profit", 1]];
+  rows.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  const fmt = (k, r) => k === "when" ? new Date(r.when).toLocaleString("en-GB", { weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : k === "back" || k === "lay" ? r[k].toFixed(2) : k === "liq" ? (r.liq == null ? "–" : "£" + Math.round(r.liq))
+    : k === "rating" ? r.rating.toFixed(1) + "%" : k === "layStake" || k === "liability" ? money(r[k])
+    : k === "profit" ? `<span class="${cls(r.profit)}">${money(r.profit)}${r.retention != null ? " · " + r.retention.toFixed(0) + "%" : ""}</span>` : escapeHtml(String(r[k]));
+  $("m_table").innerHTML = `<thead><tr>${cols.map(([k, h, n]) => `<th data-k="${k}" class="${n ? "r" : ""}">${h}${k === sortKey ? (sortDir < 0 ? " ▼" : " ▲") : ""}</th>`).join("")}</tr></thead>`
+    + `<tbody>${rows.slice(0, 150).map(r => `<tr>${cols.map(([k, , n]) => `<td class="${n ? "r" : ""}">${fmt(k, r)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  $("m_table").querySelectorAll("th").forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = k === sortKey ? -sortDir : -1; sortKey = k; renderTable(); });
+}
+function escapeHtml(s) { return s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ---------------------------------------------------------------- settings
+function loadSettings() {
+  $("s_key").value = conf.key; $("s_bf").value = conf.comm.betfair; $("s_smk").value = conf.comm.smarkets; $("s_mb").value = conf.comm.matchbook;
+  $("s_liq").value = conf.minLiq; $("s_cache").value = conf.cacheMin; $("s_sports").value = conf.sports.join("\n");
+  $("s_layapi").checked = conf.layApi; $("s_smkdirect").checked = conf.smkDirect;
+  const q = store.get("quota"); $("s_quota").textContent = q ? `Odds API credits left: ${q.remaining} (used ${q.used}, as of ${q.at}). Free tier is 500/month.` : "No Odds API calls made yet.";
+}
+$("s_save").onclick = () => {
+  conf = { key: $("s_key").value.trim(), comm: { betfair: +$("s_bf").value || 0, smarkets: +$("s_smk").value || 0, matchbook: +$("s_mb").value || 0 },
+    minLiq: +$("s_liq").value || 0, cacheMin: +$("s_cache").value || 0, sports: $("s_sports").value.split(/\s+/).filter(Boolean),
+    layApi: $("s_layapi").checked, smkDirect: $("s_smkdirect").checked };
+  store.set("conf", conf); $("c_comm").value = conf.comm[$("c_ex").value]; renderCalc();
+  $("s_msg").textContent = "Saved in this browser."; setTimeout(() => $("s_msg").textContent = "", 2500);
+};
+
+loadSettings(); renderCalc(); renderTwoUp();
+const t = store.get("tab"); if (t) document.querySelector(`nav button[data-tab="${t}"]`)?.click();
+</script>
+</body>
+</html>
