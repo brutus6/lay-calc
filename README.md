@@ -1,8 +1,8 @@
-# Matched betting toolkit
+# Lay calc
 
 A lay calculator, a 2UP trade-out calculator and an odds matcher. It comes in two forms:
 
-- **Web page** (`index.html`): use it at **https://brutus6.github.io/lay-calc/** once GitHub Pages is on.
+- **Web page** (`index.html`): live at **https://brutus6.github.io/lay-calc/** (GitHub Pages, `main` branch, root). The page asks search engines not to index it.
   Everything runs in your browser. Your Odds API key and commission settings are saved in that browser only, never in this repo.
 - **Command line** (`mb.py`): Python 3 + `requests`. This is what Claude runs.
 
