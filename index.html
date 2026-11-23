@@ -43,6 +43,13 @@ td.r,th.r{text-align:right}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .check{flex-direction:row;align-items:center;gap:6px;color:var(--ink);font-size:.88rem}
 .check input{width:auto}
+.btn.ghost{background:var(--chip);color:var(--ink);font-weight:500}
+#a_legs input,#a_legs select{min-width:64px;padding:6px 8px}
+#a_legs input.name{min-width:150px}
+#a_legs td{vertical-align:middle}
+#a_legs tr.won td{opacity:.6}
+#a_legs tr.next td:first-child{color:var(--accent);font-weight:700}
+.x{background:none;border:0;color:var(--muted);font-size:1.1rem;cursor:pointer;padding:4px 8px}
 </style>
 </head>
 <body>
@@ -52,6 +59,7 @@ td.r,th.r{text-align:right}
 
 <nav role="tablist">
   <button role="tab" aria-selected="true" data-tab="calc">Lay calculator</button>
+  <button role="tab" aria-selected="false" data-tab="acca">Acca</button>
   <button role="tab" aria-selected="false" data-tab="twoup">2UP</button>
   <button role="tab" aria-selected="false" data-tab="match">Odds matcher</button>
   <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
@@ -73,6 +81,25 @@ td.r,th.r{text-align:right}
   </div>
   <div class="out" id="calcOut"></div>
   <p class="note" id="calcNote"></p>
+</section>
+
+<!-- ACCA -->
+<section id="tab-acca" class="card hidden">
+  <p class="note" style="margin-top:0">Lay an acca one leg at a time, each just before it kicks off, so you end on the same amount whatever happens. Enter the legs in kick-off order. When a leg wins, mark it <b>Won</b>, type the lay you actually placed, update the next leg's lay odds, and the rest recalculate. Stop as soon as a leg loses.</p>
+  <div class="seg" id="accaType">
+    <button aria-pressed="true" data-v="q">Qualifying</button>
+    <button aria-pressed="false" data-v="snr">Free bet (SNR)</button>
+    <button aria-pressed="false" data-v="sr">Free bet (SR)</button>
+  </div>
+  <div class="grid">
+    <label>Acca stake (£)<input id="a_stake" type="number" step="any" inputmode="decimal" value="10"></label>
+    <label>Exchange<select id="a_ex"></select></label>
+    <label>Commission %<input id="a_comm" type="number" step="any" inputmode="decimal"></label>
+  </div>
+  <div class="tablewrap"><table id="a_legs"></table></div>
+  <div class="row"><button class="btn" id="a_add">Add leg</button><button class="btn ghost" id="a_clear">Clear legs</button></div>
+  <div class="out" id="accaOut"></div>
+  <p class="note" id="accaNote"></p>
 </section>
 
 <!-- 2UP -->
@@ -218,6 +245,87 @@ function renderTwoUp() {
     + stat("Locked in: team wins", r.win, true) + stat("Locked in: draw / loses", r.lose, true)
     + stat("Let it ride: team wins", r.rideWin, true) + stat("Let it ride: draw / loses", r.rideLose, true);
 }
+
+// ---------------------------------------------------------------- acca, laid one leg at a time (same as mb.py acca_calc)
+function accaCalc(kind, stake, legs, commPct) {
+  // legs: [{b, l}] in kick-off order. Work back from the last leg so every outcome ends the same.
+  const c = commPct / 100, acca = legs.reduce((p, x) => p * x.b, 1);
+  const win = kind === "sr" ? stake * acca : stake * (acca - 1), lose = kind === "q" ? -stake : 0;
+  const n = legs.length, lays = new Array(n);
+  lays[n - 1] = (win - lose) / (legs[n - 1].l - c);
+  for (let k = n - 2; k >= 0; k--) lays[k] = lays[k + 1] * (1 - c) / (legs[k].l - c);
+  return { acca, win, lose, c, lays, liab: lays.map((L, i) => L * (legs[i].l - 1)) };
+}
+const ACCA_DEFAULT = () => ({ type: "q", stake: 10, ex: "smarkets", legs: [0, 1, 2].map(() => ({ name: "", b: "", l: "", st: "pending", laid: "" })) });
+let acca = Object.assign(ACCA_DEFAULT(), store.get("acca", {}));
+const accaType = seg("accaType", () => { acca.type = accaType(); renderAcca(); });
+document.querySelectorAll("#accaType button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === acca.type));
+$("a_ex").innerHTML = EXES.map(e => `<option value="${e}">${e[0].toUpperCase() + e.slice(1)}</option>`).join("");
+$("a_ex").value = acca.ex; $("a_stake").value = acca.stake;
+$("a_comm").value = acca.comm != null ? acca.comm : conf.comm[acca.ex];
+$("a_ex").onchange = () => { acca.ex = $("a_ex").value; $("a_comm").value = conf.comm[acca.ex]; acca.comm = conf.comm[acca.ex]; renderAcca(); };
+$("a_stake").oninput = () => { acca.stake = $("a_stake").value; renderAcca(); };
+$("a_comm").oninput = () => { acca.comm = $("a_comm").value; renderAcca(); };
+$("a_add").onclick = () => { if (acca.legs.length < 10) acca.legs.push({ name: "", b: "", l: "", st: "pending", laid: "" }); buildLegs(); };
+$("a_clear").onclick = () => { acca.legs = ACCA_DEFAULT().legs; buildLegs(); };
+function buildLegs() {
+  const opt = (v, t, cur) => `<option value="${v}"${v === cur ? " selected" : ""}>${t}</option>`;
+  $("a_legs").innerHTML = `<thead><tr><th>Leg</th><th>Selection</th><th class="r">Back</th><th class="r">Lay</th><th>Status</th><th class="r">Lay stake</th><th class="r">Liability</th><th class="r">Lay you placed</th><th></th></tr></thead><tbody>`
+    + acca.legs.map((g, i) => `<tr id="a_row${i}"><td>${i + 1}</td>`
+      + `<td><input class="name" data-i="${i}" data-f="name" value="${escapeHtml(g.name)}" placeholder="e.g. Aston Villa"></td>`
+      + `<td><input data-i="${i}" data-f="b" type="number" step="any" inputmode="decimal" value="${g.b}"></td>`
+      + `<td><input data-i="${i}" data-f="l" type="number" step="any" inputmode="decimal" value="${g.l}"></td>`
+      + `<td><select data-i="${i}" data-f="st">${opt("pending", "To play", g.st)}${opt("won", "Won", g.st)}${opt("lost", "Lost", g.st)}</select></td>`
+      + `<td class="r" id="a_L${i}"></td><td class="r" id="a_Z${i}"></td>`
+      + `<td><input data-i="${i}" data-f="laid" type="number" step="any" inputmode="decimal" value="${g.laid}" placeholder="£"></td>`
+      + `<td><button class="x" data-del="${i}" aria-label="Remove leg ${i + 1}">×</button></td></tr>`).join("") + "</tbody>";
+  $("a_legs").querySelectorAll("[data-f]").forEach(el => el[el.tagName === "SELECT" ? "onchange" : "oninput"] = () => {
+    acca.legs[+el.dataset.i][el.dataset.f] = el.value; renderAcca();
+  });
+  $("a_legs").querySelectorAll("[data-del]").forEach(b => b.onclick = () => { if (acca.legs.length > 2) { acca.legs.splice(+b.dataset.del, 1); buildLegs(); } });
+  renderAcca();
+}
+function renderAcca() {
+  store.set("acca", acca);
+  const kind = acca.type, stake = parseFloat(acca.stake), commPct = parseFloat($("a_comm").value) || 0;
+  const legs = acca.legs.map(g => ({ b: parseFloat(g.b), l: parseFloat(g.l), st: g.st, laid: parseFloat(g.laid) }));
+  legs.forEach((_, i) => { $("a_L" + i).textContent = ""; $("a_Z" + i).textContent = ""; $("a_row" + i).className = ""; });
+  if (!(stake > 0) || legs.some(g => !(g.b > 1 && g.l > 1))) {
+    $("accaOut").innerHTML = ""; $("accaNote").textContent = "Enter the stake and the back and lay odds for every leg."; return;
+  }
+  const r = accaCalc(kind, stake, legs, commPct);
+  // legs already won, in order from the first; their lays are sunk (use the stake actually placed if given)
+  let won = 0; while (won < legs.length && legs[won].st === "won") won++;
+  const used = i => legs[i].laid > 0 ? legs[i].laid : r.lays[i];
+  const sunk = legs.slice(0, won).reduce((s, g, i) => s + used(i) * (g.l - 1), 0);
+  const lostAt = legs.findIndex(g => g.st === "lost");
+  legs.forEach((g, i) => {
+    if (i < won) $("a_row" + i).className = "won";
+    if (i === won && lostAt < 0) $("a_row" + i).className = "next";
+    if (i >= won && (lostAt < 0 || i <= lostAt)) { $("a_L" + i).textContent = money(r.lays[i]); $("a_Z" + i).textContent = money(r.liab[i]); }
+  });
+  const pct = x => kind === "q" ? "" : ` · ${(100 * x / stake).toFixed(1)}% of the free bet`;
+  if (lostAt >= 0) {
+    const end = r.lose + used(lostAt) * (1 - r.c) - legs.slice(0, lostAt).reduce((s, g, i) => s + used(i) * (g.l - 1), 0);
+    $("accaOut").innerHTML = `<div class="stat"><b class="${cls(end)}">${money(end)}</b><span>Final result: leg ${lostAt + 1} lost, so the acca is dead${pct(end)}</span></div>`;
+    $("accaNote").textContent = "No more lays needed. If you didn't lay the losing leg, its lay stake doesn't count: change it to the stake you placed, or 0.";
+    return;
+  }
+  if (won === legs.length) {
+    const end = r.win - sunk;
+    $("accaOut").innerHTML = `<div class="stat"><b class="${cls(end)}">${money(end)}</b><span>Final result: every leg won${pct(end)}</span></div>`;
+    $("accaNote").textContent = "The bookie pays out the acca; all your lays lost.";
+    return;
+  }
+  const end = r.lose + r.lays[won] * (1 - r.c) - sunk;
+  $("accaOut").innerHTML = `<div class="stat"><b>${(r.acca).toFixed(2)}</b><span>Acca odds · returns ${money(stake * r.acca)}</span></div>`
+    + `<div class="stat"><b>${money(r.lays[won])}</b><span>Lay leg ${won + 1} now @ ${legs[won].l}</span></div>`
+    + `<div class="stat"><b>${money(r.liab[won])}</b><span>Liability for that lay (needed in ${acca.ex[0].toUpperCase() + acca.ex.slice(1)})</span></div>`
+    + `<div class="stat"><b class="${cls(end)}">${money(end)}</b><span>${kind === "q" ? "Qualifying loss, whatever happens" : "Locked-in profit"}${pct(end)}</span></div>`;
+  $("accaNote").textContent = `Lay each leg only after the one before it has won. Biggest liability still to come: ${money(Math.max(...r.liab.slice(won)))}. `
+    + "Later legs are worked out from the lay odds you've entered: re-check them before each lay. Use a round-number bookie stake.";
+}
+buildLegs();
 
 // ---------------------------------------------------------------- name matching (same as mb.py)
 const ALIASES = { utd: "united", man: "manchester", spurs: "tottenham", nottm: "nottingham", wolves: "wolverhampton", st: "saint", psg: "paris saint germain" };

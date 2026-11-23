@@ -261,6 +261,67 @@ def twoup(stake, back, lay_stake, lay, inplay):
     return {"back_stake": x, "win": win, "lose": lose, "ride_win": ride_win, "ride_lose": ride_lose}
 
 
+def acca_calc(kind, stake, legs, comm_pct, won=0, sunk=None):
+    """Lay an acca one leg at a time, each leg just before it kicks off, so every outcome ends the same.
+    legs = [(back, lay), ...] in kick-off order. Working back from the last leg:
+      last lay  = (bookie win - bookie loss) / (lay - c)
+      earlier   = next lay x (1 - c) / (lay - c)
+    won = how many legs have already won; sunk = liability already lost on their lays (default: the
+    recommended stakes at the odds given). Remaining legs use the lay odds given now, so re-run with
+    fresh odds as each leg wins."""
+    c = comm_pct / 100
+    acca = 1.0
+    for b, _ in legs:
+        acca *= b
+    if kind == "q":
+        win, lose = stake * (acca - 1), -stake
+    elif kind == "snr":
+        win, lose = stake * (acca - 1), 0.0
+    else:
+        win, lose = stake * acca, 0.0
+    n = len(legs)
+    lays = [0.0] * n
+    lays[-1] = (win - lose) / (legs[-1][1] - c)
+    for k in range(n - 2, -1, -1):
+        lays[k] = lays[k + 1] * (1 - c) / (legs[k][1] - c)
+    liab = [lays[i] * (legs[i][1] - 1) for i in range(n)]
+    if sunk is None:
+        sunk = sum(liab[:won])
+    result = (lose + lays[won] * (1 - c) - sunk) if won < n else (win - sunk)
+    return {"acca_odds": acca, "lays": lays, "liabilities": liab, "result": result,
+            "max_liability": max(liab[won:]) if won < n else 0.0, "sunk": sunk,
+            "retention_pct": None if kind == "q" else 100 * result / stake}
+
+
+def cmd_acca(a, conf):
+    legs = []
+    for part in a.legs.split(","):
+        try:
+            b, l = (float(x) for x in part.strip().split("/"))
+        except ValueError:
+            sys.exit(f"Bad leg '{part}': write each leg as BACK/LAY, e.g. 2.20/2.30")
+        legs.append((b, l))
+    if not 0 <= a.won < len(legs):
+        sys.exit("--won must be less than the number of legs")
+    comm = comm_for(conf, a.ex, a.comm)
+    r = acca_calc(a.type, a.stake, legs, comm, a.won, a.sunk)
+    label = {"q": "Qualifying acca", "snr": "Free bet acca (stake not returned)", "sr": "Free bet acca (stake returned)"}[a.type]
+    print(f"{label}: £{a.stake:g} @ {r['acca_odds']:.2f} ({len(legs)} legs), lay one leg at a time on {a.ex} ({comm:g}% commission)")
+    if a.won:
+        done = "Leg 1 has" if a.won == 1 else f"Legs 1-{a.won} have"
+        print(f"  {done} already won; liability lost on the lay so far: {money(r['sunk'])}")
+    for i, (b, l) in enumerate(legs):
+        if i < a.won:
+            print(f"  Leg {i+1}: won")
+            continue
+        when = "now" if i == a.won else f"only if leg {i} wins"
+        print(f"  Leg {i+1}: back {b} / lay {l}   LAY {money(r['lays'][i])}   liability {money(r['liabilities'][i])}   ({when})")
+    print(f"  Whatever happens you end on {money(r['result'])}"
+          + (f"  ({r['retention_pct']:.1f}% of the free bet)" if r["retention_pct"] is not None else "  (qualifying loss)"))
+    print(f"  Biggest single liability {money(r['max_liability'])}. Stop laying as soon as a leg loses.")
+    print("  Re-check the lay odds before each leg and re-run with --won N --sunk £ if they have moved.")
+
+
 def cmd_calc(a, conf):
     if a.type == "2up":
         if a.inplay is None:
@@ -409,10 +470,16 @@ def main():
     m.add_argument("--bookies", default=""); m.add_argument("--days", type=int, default=3)
     m.add_argument("--top", type=int, default=25); m.add_argument("--fresh", action="store_true")
     m.add_argument("--any-liq", action="store_true", help="include lays with too little money available")
+    ac = sub.add_parser("acca", help="lay an acca one leg at a time")
+    ac.add_argument("--type", choices=["q", "snr", "sr"], default="q"); ac.add_argument("--stake", type=float, default=10)
+    ac.add_argument("--legs", required=True, help='BACK/LAY per leg in kick-off order, e.g. "2.20/2.30,1.40/1.42,1.67/1.69"')
+    ac.add_argument("--won", type=int, default=0, help="legs already won")
+    ac.add_argument("--sunk", type=float, help="liability already lost on the won legs' lays")
+    ac.add_argument("--ex", default="smarkets"); ac.add_argument("--comm", type=float)
     sub.add_parser("quota")
     a = p.parse_args()
     conf = load_conf()
-    {"calc": cmd_calc, "lay": cmd_lay, "match": cmd_match, "quota": cmd_quota}[a.cmd](a, conf)
+    {"calc": cmd_calc, "acca": cmd_acca, "lay": cmd_lay, "match": cmd_match, "quota": cmd_quota}[a.cmd](a, conf)
 
 
 if __name__ == "__main__":
