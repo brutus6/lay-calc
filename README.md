@@ -15,6 +15,7 @@ Only mainstream competitions are scanned (EPL, Championship, UCL, UEL, FA Cup, E
 |---|---|
 | Lay calculator | Qualifying, free bet SNR (stake not returned) and SR (stake returned): lay stake, liability, profit/loss each way, retention %. |
 | Acca | Lay an acca one leg at a time (qualifying, SNR or SR free bet). Gives each leg's lay stake and recalculates the rest as legs win and odds move. |
+| Boost / arb | Arb an odds boost or any bookie price above the lay price. Enter the boost %, stake and several selections; it ranks them by guaranteed profit and gives the lay stake. |
 | 2UP | Your team went 2 up and the bookie paid out. Shows the exchange back stake that locks in profit, against letting it ride. |
 | Odds matcher | Ranks bookie back odds against exchange lay odds for your stake and bet type. Needs a free key from [the-odds-api.com](https://the-odds-api.com) (Settings tab). |
 
@@ -30,6 +31,7 @@ mb calc sr  10 4.0  4.2                 free bet, stake returned
 mb calc 2up 25 2.5 24.80 2.52 1.10      2UP: stake, back odds, lay stake, lay odds, in-play back odds
 mb acca --type q --stake 10 --legs "2.20/2.30,1.40/1.42,1.67/1.69"   acca laid one leg at a time
 mb acca ... --won 1 --sunk 12.10        after leg 1 wins: re-run with today's lay odds
+mb boost --stake 10 --boost 30 --sel "Draw:3.50/3.60,Brentford:2.30/2.40"   rank boost arbs (0% if odds already boosted)
 mb lay "arsenal" [--all]                live Smarkets lay prices + liquidity (no key needed)
 mb match --type snr --stake 10 --bookies "william,paddy" --min-odds 3
 mb quota                                Odds API credits left

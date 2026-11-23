@@ -44,8 +44,9 @@ td.r,th.r{text-align:right}
 .check{flex-direction:row;align-items:center;gap:6px;color:var(--ink);font-size:.88rem}
 .check input{width:auto}
 .btn.ghost{background:var(--chip);color:var(--ink);font-weight:500}
-#a_legs input,#a_legs select{min-width:64px;padding:6px 8px}
-#a_legs input.name{min-width:150px}
+#a_legs input,#a_legs select,#b_rows input{min-width:64px;padding:6px 8px}
+#a_legs input.name,#b_rows input.name{min-width:150px}
+#b_rows tr.best td{font-weight:700}
 #a_legs td{vertical-align:middle}
 #a_legs tr.won td{opacity:.6}
 #a_legs tr.next td:first-child{color:var(--accent);font-weight:700}
@@ -60,6 +61,7 @@ td.r,th.r{text-align:right}
 <nav role="tablist">
   <button role="tab" aria-selected="true" data-tab="calc">Lay calculator</button>
   <button role="tab" aria-selected="false" data-tab="acca">Acca</button>
+  <button role="tab" aria-selected="false" data-tab="boost">Boost / arb</button>
   <button role="tab" aria-selected="false" data-tab="twoup">2UP</button>
   <button role="tab" aria-selected="false" data-tab="match">Odds matcher</button>
   <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
@@ -100,6 +102,21 @@ td.r,th.r{text-align:right}
   <div class="row"><button class="btn" id="a_add">Add leg</button><button class="btn ghost" id="a_clear">Clear legs</button></div>
   <div class="out" id="accaOut"></div>
   <p class="note" id="accaNote"></p>
+</section>
+
+<!-- BOOST / ARB -->
+<section id="tab-boost" class="card hidden">
+  <p class="note" style="margin-top:0">Arb an odds boost, or any bookie price that's above the lay price. Add the selections you're choosing between: the best is ranked first. If the bookie already shows the boosted price, set the boost to 0% and enter that price.</p>
+  <div class="grid">
+    <label>Stake (£) (use the boost's max stake)<input id="b_stake" type="number" step="any" inputmode="decimal" value="10"></label>
+    <label>Boost % (added to the winnings part)<input id="b_pct" type="number" step="any" inputmode="decimal" value="0"></label>
+    <label>Exchange<select id="b_ex"></select></label>
+    <label>Commission %<input id="b_comm" type="number" step="any" inputmode="decimal"></label>
+  </div>
+  <div class="tablewrap"><table id="b_rows"></table></div>
+  <div class="row"><button class="btn" id="b_add">Add selection</button><button class="btn ghost" id="b_clear">Clear</button></div>
+  <div class="out" id="boostOut"></div>
+  <p class="note" id="boostNote"></p>
 </section>
 
 <!-- 2UP -->
@@ -326,6 +343,66 @@ function renderAcca() {
     + "Later legs are worked out from the lay odds you've entered: re-check them before each lay. Use a round-number bookie stake.";
 }
 buildLegs();
+
+// ---------------------------------------------------------------- boost / arb (same as mb.py boost_calc)
+function boostCalc(stake, odds, lay, commPct, boostPct) {
+  const c = commPct / 100, boosted = 1 + (odds - 1) * (1 + boostPct / 100);
+  const L = stake * boosted / (lay - c), profit = L * (1 - c) - stake;
+  return { boosted, layStake: L, liability: L * (lay - 1), profit, pct: 100 * profit / stake };
+}
+const BOOST_DEFAULT = () => ({ stake: 10, pct: 0, ex: "smarkets", rows: [0, 1, 2].map(() => ({ name: "", o: "", l: "" })) });
+let boost = Object.assign(BOOST_DEFAULT(), store.get("boost", {}));
+$("b_ex").innerHTML = EXES.map(e => `<option value="${e}">${e[0].toUpperCase() + e.slice(1)}</option>`).join("");
+$("b_ex").value = boost.ex; $("b_stake").value = boost.stake; $("b_pct").value = boost.pct;
+$("b_comm").value = boost.comm != null ? boost.comm : conf.comm[boost.ex];
+$("b_ex").onchange = () => { boost.ex = $("b_ex").value; $("b_comm").value = boost.comm = conf.comm[boost.ex]; renderBoost(); };
+$("b_stake").oninput = () => { boost.stake = $("b_stake").value; renderBoost(); };
+$("b_pct").oninput = () => { boost.pct = $("b_pct").value; renderBoost(); };
+$("b_comm").oninput = () => { boost.comm = $("b_comm").value; renderBoost(); };
+$("b_add").onclick = () => { if (boost.rows.length < 12) boost.rows.push({ name: "", o: "", l: "" }); buildBoost(); };
+$("b_clear").onclick = () => { boost.rows = BOOST_DEFAULT().rows; buildBoost(); };
+function buildBoost() {
+  $("b_rows").innerHTML = `<thead><tr><th>Selection</th><th class="r">Bookie odds</th><th class="r">Lay odds</th><th class="r">Boosted</th><th class="r">Lay stake</th><th class="r">Liability</th><th class="r">Profit</th><th class="r">Rank</th><th></th></tr></thead><tbody>`
+    + boost.rows.map((g, i) => `<tr id="b_row${i}">`
+      + `<td><input class="name" data-i="${i}" data-f="name" value="${escapeHtml(g.name)}" placeholder="e.g. Draw"></td>`
+      + `<td><input data-i="${i}" data-f="o" type="number" step="any" inputmode="decimal" value="${g.o}"></td>`
+      + `<td><input data-i="${i}" data-f="l" type="number" step="any" inputmode="decimal" value="${g.l}"></td>`
+      + `<td class="r" id="b_B${i}"></td><td class="r" id="b_L${i}"></td><td class="r" id="b_Z${i}"></td><td class="r" id="b_P${i}"></td><td class="r" id="b_R${i}"></td>`
+      + `<td><button class="x" data-del="${i}" aria-label="Remove selection ${i + 1}">×</button></td></tr>`).join("") + "</tbody>";
+  $("b_rows").querySelectorAll("[data-f]").forEach(el => el.oninput = () => { boost.rows[+el.dataset.i][el.dataset.f] = el.value; renderBoost(); });
+  $("b_rows").querySelectorAll("[data-del]").forEach(b => b.onclick = () => { if (boost.rows.length > 1) { boost.rows.splice(+b.dataset.del, 1); buildBoost(); } });
+  renderBoost();
+}
+function renderBoost() {
+  store.set("boost", boost);
+  const stake = parseFloat(boost.stake), pct = parseFloat(boost.pct) || 0, comm = parseFloat($("b_comm").value) || 0;
+  const res = boost.rows.map((g, i) => {
+    ["B", "L", "Z", "P", "R"].forEach(k => $("b_" + k + i).textContent = ""); $("b_row" + i).className = "";
+    const o = parseFloat(g.o), l = parseFloat(g.l);
+    return stake > 0 && o > 1 && l > 1 ? { i, name: g.name || `Selection ${i + 1}`, l, ...boostCalc(stake, o, l, comm, pct) } : null;
+  }).filter(Boolean);
+  if (!res.length) { $("boostOut").innerHTML = ""; $("boostNote").textContent = "Enter the stake and, for each selection, the bookie odds and the lay odds."; return; }
+  const ranked = [...res].sort((a, b) => b.profit - a.profit);
+  ranked.forEach((r, n) => {
+    $("b_B" + r.i).textContent = r.boosted.toFixed(2); $("b_L" + r.i).textContent = money(r.layStake);
+    $("b_Z" + r.i).textContent = money(r.liability);
+    $("b_P" + r.i).innerHTML = `<span class="${cls(r.profit)}">${money(r.profit)}</span> <span class="note">${r.pct.toFixed(1)}%</span>`;
+    $("b_R" + r.i).textContent = n + 1;
+    if (n === 0) $("b_row" + r.i).className = "best";
+  });
+  const best = ranked[0];
+  if (best.profit <= 0.005) {
+    $("boostOut").innerHTML = stat("Best available: no arb", best.profit, true);
+    $("boostNote").textContent = "None of these beats the lay price. Look for a closer lay price or a bigger boost.";
+    return;
+  }
+  $("boostOut").innerHTML = `<div class="stat"><b>${escapeHtml(best.name)}</b><span>Best pick · bookie price ${best.boosted.toFixed(2)}</span></div>`
+    + `<div class="stat"><b>${money(best.layStake)}</b><span>Lay @ ${best.l} on ${$("b_ex").value[0].toUpperCase() + $("b_ex").value.slice(1)}</span></div>`
+    + `<div class="stat"><b>${money(best.liability)}</b><span>Liability (needed in the exchange)</span></div>`
+    + stat("Profit, whatever the result", best.profit, true);
+  $("boostNote").textContent = "Place the bookie bet first, then lay straight away. If the lay price moves, change it here and use the new lay stake.";
+}
+buildBoost();
 
 // ---------------------------------------------------------------- name matching (same as mb.py)
 const ALIASES = { utd: "united", man: "manchester", spurs: "tottenham", nottm: "nottingham", wolves: "wolverhampton", st: "saint", psg: "paris saint germain" };

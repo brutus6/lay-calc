@@ -322,6 +322,38 @@ def cmd_acca(a, conf):
     print("  Re-check the lay odds before each leg and re-run with --won N --sunk £ if they have moved.")
 
 
+def boost_calc(stake, odds, lay, comm_pct, boost_pct=0.0):
+    """Arb a price boost (or any bookie price above the lay price). boost_pct is added to the winnings
+    part of the odds, e.g. 30% turns 3.50 into 1 + 2.50 x 1.3 = 4.25. Use 0 if `odds` is already boosted.
+    The lay is sized so the bookie and exchange outcomes are equal."""
+    c = comm_pct / 100
+    boosted = 1 + (odds - 1) * (1 + boost_pct / 100)
+    L = stake * boosted / (lay - c)
+    profit = L * (1 - c) - stake
+    return {"boosted": boosted, "lay_stake": L, "liability": L * (lay - 1), "profit": profit, "pct": 100 * profit / stake}
+
+
+def cmd_boost(a, conf):
+    comm = comm_for(conf, a.ex, a.comm)
+    rows = []
+    for part in a.sel.split(","):
+        try:
+            name, prices = part.rsplit(":", 1) if ":" in part else (f"Selection {len(rows)+1}", part)
+            o, l = (float(x) for x in prices.strip().split("/"))
+        except ValueError:
+            sys.exit(f"Bad selection '{part}': write NAME:BOOKIE_ODDS/LAY_ODDS, e.g. Draw:3.50/3.60")
+        rows.append((name.strip(), o, l, boost_calc(a.stake, o, l, comm, a.boost)))
+    rows.sort(key=lambda r: -r[3]["profit"])
+    head = f"£{a.stake:g} stake" + (f", {a.boost:g}% boost on the winnings part of the odds" if a.boost else " at the odds given")
+    print(f"Boost / arb: {head}. Lay on {a.ex} ({comm:g}% commission). Best first:")
+    print(f"  {'Selection':<22}{'Odds':>6}{'Boosted':>9}{'Lay':>7}{'Lay stake':>11}{'Liability':>11}{'Profit':>10}{'':>8}")
+    for name, o, l, r in rows:
+        flag = "" if r["profit"] > 0.005 else "  (no arb)"
+        print(f"  {name[:21]:<22}{o:>6.2f}{r['boosted']:>9.2f}{l:>7.2f}{money(r['lay_stake']):>11}{money(r['liability']):>11}"
+              f"{money(r['profit']):>10}{r['pct']:>7.1f}%{flag}")
+    print("  The profit is the same whichever way the result goes. Place the bookie bet first, then lay straight away.")
+
+
 def cmd_calc(a, conf):
     if a.type == "2up":
         if a.inplay is None:
@@ -476,10 +508,15 @@ def main():
     ac.add_argument("--won", type=int, default=0, help="legs already won")
     ac.add_argument("--sunk", type=float, help="liability already lost on the won legs' lays")
     ac.add_argument("--ex", default="smarkets"); ac.add_argument("--comm", type=float)
+    bo = sub.add_parser("boost", help="arb a price boost; compare several selections")
+    bo.add_argument("--stake", type=float, default=10, help="stake (use the boost's max stake)")
+    bo.add_argument("--boost", type=float, default=0, help="%% added to the winnings part of the odds (0 if the odds are already boosted)")
+    bo.add_argument("--sel", required=True, help='NAME:BOOKIE_ODDS/LAY_ODDS, comma separated, e.g. "Draw:3.50/3.60,Brentford:2.30/2.40"')
+    bo.add_argument("--ex", default="smarkets"); bo.add_argument("--comm", type=float)
     sub.add_parser("quota")
     a = p.parse_args()
     conf = load_conf()
-    {"calc": cmd_calc, "acca": cmd_acca, "lay": cmd_lay, "match": cmd_match, "quota": cmd_quota}[a.cmd](a, conf)
+    {"calc": cmd_calc, "acca": cmd_acca, "boost": cmd_boost, "lay": cmd_lay, "match": cmd_match, "quota": cmd_quota}[a.cmd](a, conf)
 
 
 if __name__ == "__main__":
