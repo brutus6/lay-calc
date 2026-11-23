@@ -170,6 +170,9 @@ def chunks(xs, n):
         yield xs[i:i + n]
 
 
+BY_NAME = ("CORRECT_SCORE", "HALF_FULL", "HALF_TIME_CORRECT_SCORE")
+
+
 def smk_prices(event_ids, want=("WINNER_3_WAY",)):
     """{event_id: {market_name: {contract_type_or_name: {'lay': odds, 'liq': £, 'back': odds}}}}"""
     out = {}
@@ -190,6 +193,8 @@ def smk_prices(event_ids, want=("WINNER_3_WAY",)):
             bids = sorted(q.get("bids", []), key=lambda b: -b["price"])
             offers = sorted(q.get("offers", []), key=lambda b: b["price"])
             ctype = (c.get("contract_type") or {}).get("name") or c["name"]
+            if mt.get("name") in BY_NAME:  # many contracts share one type here (e.g. every score)
+                ctype = c["name"]
             entry = {"name": c["name"], "lay": None, "liq": 0.0, "back": None}
             # A Smarkets price is implied probability in basis points. Laying means selling
             # into the best bid; the bid's backer stake (quantity x price) is what you can lay.
@@ -384,13 +389,22 @@ def cmd_lay(a, conf):
         print(f"No Smarkets football match matching '{a.team}' in the next {a.days} days.")
         return
     want = ("WINNER_3_WAY", "OVER_UNDER", "BTTS") if a.all else ("WINNER_3_WAY",)
+    if a.cs:
+        want += ("CORRECT_SCORE", "HALF_FULL")
     prices = smk_prices([e["id"] for e in ev[:8]], want)
     for e in ev[:8]:
         print(f"\n{e['name']}  —  {e['start'][:16].replace('T', ' ')} UTC")
         for mn, cs in prices.get(e["id"], {}).items():
             if a.all and mn.startswith("Over/under") and "2.5" not in mn:
                 continue
-            row = "   ".join(f"{c['name']}: lay {c['lay'] or '-'} (£{c['liq']:.0f})" for c in cs.values())
+            items = list(cs.values())
+            if len(items) > 4:  # correct score / HT-FT: one line per selection, in a sensible order
+                items.sort(key=lambda c: (c["lay"] is None, c["name"]))
+                print(f"  {mn}:")
+                for c in items:
+                    print(f"      {c['name']:<22} lay {c['lay'] or '-':<7} (£{c['liq']:.0f} available)")
+                continue
+            row = "   ".join(f"{c['name']}: lay {c['lay'] or '-'} (£{c['liq']:.0f})" for c in items)
             print(f"  {mn:<20} {row}")
 
 
@@ -497,6 +511,7 @@ def main():
     c.add_argument("--ex", default="betfair"); c.add_argument("--comm", type=float)
     l = sub.add_parser("lay"); l.add_argument("team"); l.add_argument("--days", type=int, default=7)
     l.add_argument("--all", action="store_true", help="also over/under 2.5 and BTTS"); l.add_argument("--fresh", action="store_true")
+    l.add_argument("--cs", action="store_true", help="also correct score and half-time/full-time (for laying bet builders)")
     m = sub.add_parser("match"); m.add_argument("--type", default="q"); m.add_argument("--stake", type=float, default=10)
     m.add_argument("--min-odds", type=float, default=1.5); m.add_argument("--max-odds", type=float, default=0)
     m.add_argument("--bookies", default=""); m.add_argument("--days", type=int, default=3)
